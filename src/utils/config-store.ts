@@ -1,11 +1,14 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 
-import type { HaloConfig, HaloProfile, StoredHaloProfile } from "../shared/profile.js";
-import { toStoredHaloProfile } from "../shared/profile.js";
-import { KeyringCredentialStore, type CredentialStore } from "./credential-store.js";
+import type { CredentialStoreType, HaloConfig, HaloProfile, StoredHaloProfile } from "../shared/profile.js";
+import { isCredentialStoreType, toStoredHaloProfile } from "../shared/profile.js";
+import { ConfiguredCredentialStore } from "./configured-credential-store.js";
+import type { CredentialStore } from "./credential-store.js";
 import { CliError } from "./errors.js";
+import { stringifyJson } from "./output.js";
 
 const DEFAULT_CONFIG: HaloConfig = {
   profiles: {},
@@ -49,40 +52,71 @@ interface ConfigFileStoredProfile {
 interface ConfigFileContents {
   activeProfile?: string;
   profiles?: Record<string, ConfigFileStoredProfile>;
+  credentialStore?: unknown;
 }
 
-function resolveConfigRoot(): string {
-  if (process.env.HALO_CLI_CONFIG_DIR) {
-    return process.env.HALO_CLI_CONFIG_DIR;
+export function resolveConfigRoot(
+  environment: NodeJS.ProcessEnv = process.env,
+  homeDirectory = homedir(),
+): string {
+  if (environment.HALO_CLI_CONFIG_DIR) {
+    return environment.HALO_CLI_CONFIG_DIR;
   }
 
-  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+  const xdgConfigHome = environment.XDG_CONFIG_HOME;
   if (xdgConfigHome) {
     return join(xdgConfigHome, "halo");
   }
 
-  return join(homedir(), ".config", "halo");
+  return join(homeDirectory, ".config", "halo");
 }
 
 export class ConfigStore {
   readonly configPath: string;
   readonly credentialStore: CredentialStore;
+  private resolvedCredentialStore?: CredentialStoreType;
 
   constructor(
     configPath = join(resolveConfigRoot(), "config.json"),
-    credentialStore: CredentialStore = new KeyringCredentialStore(),
+    credentialStore?: CredentialStore,
   ) {
     this.configPath = configPath;
-    this.credentialStore = credentialStore;
+    this.credentialStore = credentialStore ?? new ConfiguredCredentialStore(
+      dirname(configPath),
+      {
+        persistSelection: async (type) => {
+          this.resolvedCredentialStore = type;
+        },
+      },
+    );
   }
 
   async load(): Promise<HaloConfig> {
     try {
       const raw = await readFile(this.configPath, "utf8");
       const parsed = JSON.parse(raw) as ConfigFileContents;
+
+      // Read credentialStore from config.json
+      if (isCredentialStoreType(parsed.credentialStore)) {
+        this.resolvedCredentialStore = parsed.credentialStore;
+      } else if (parsed.credentialStore !== undefined) {
+        // Unknown value — silently ignore
+      }
+
+      // Migrate from old selection.json if config.json has no credentialStore
+      if (!this.resolvedCredentialStore) {
+        await this.migrateLegacySelection();
+      }
+
+      // Pass resolved type to ConfiguredCredentialStore to skip redundant probing
+      if (this.resolvedCredentialStore && this.credentialStore instanceof ConfiguredCredentialStore) {
+        this.credentialStore.setPersistedType(this.resolvedCredentialStore);
+      }
+
       return {
         activeProfile: parsed.activeProfile,
         profiles: this.validateStoredProfiles(parsed.profiles ?? {}),
+        credentialStore: this.resolvedCredentialStore,
       };
     } catch (error) {
       const maybeNodeError = error as NodeJS.ErrnoException;
@@ -95,8 +129,24 @@ export class ConfigStore {
   }
 
   async save(config: HaloConfig): Promise<void> {
-    await mkdir(dirname(this.configPath), { recursive: true });
-    await writeFile(this.configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    // Always inject the resolved credential store type
+    const toWrite = { ...config };
+    if (this.resolvedCredentialStore) {
+      toWrite.credentialStore = this.resolvedCredentialStore;
+    }
+
+    // Atomic write via temp file + rename
+    const dir = dirname(this.configPath);
+    await mkdir(dir, { recursive: true });
+    const tmpPath = join(dir, `.config.tmp-${process.pid}-${randomUUID()}`);
+    await writeFile(tmpPath, stringifyJson(toWrite), "utf8");
+    try {
+      await rename(tmpPath, this.configPath);
+    } catch (error) {
+      // Clean up temp file on failure; original config.json is preserved
+      await rm(tmpPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async upsertProfile(profile: HaloProfile, setActive = true): Promise<HaloConfig> {
@@ -160,6 +210,10 @@ export class ConfigStore {
       throw new CliError(`Halo profile "${name}" does not exist.`);
     }
 
+    // Remove profile from config and persist FIRST,
+    // then delete credentials. If credential deletion fails,
+    // the profile is already gone from config and the orphaned
+    // credentials are harmless.
     delete config.profiles[name];
     if (config.activeProfile === name) {
       delete config.activeProfile;
@@ -170,6 +224,7 @@ export class ConfigStore {
     try {
       await this.credentialStore.deleteProfileCredentials(name);
     } catch (error) {
+      if (error instanceof CliError) throw error;
       const message = error instanceof Error ? error.message : "Unknown keyring error.";
       throw new CliError(
         `Profile "${name}" was removed from config, but deleting its saved credentials failed: ${message}`,
@@ -277,12 +332,26 @@ export class ConfigStore {
     return validatedProfiles;
   }
 
+  private async migrateLegacySelection(): Promise<void> {
+    try {
+      const selectionPath = join(dirname(this.configPath), "credential-store", "selection.json");
+      const raw = await readFile(selectionPath, "utf8");
+      const parsed = JSON.parse(raw) as { type?: unknown };
+      if (isCredentialStoreType(parsed.type)) {
+        this.resolvedCredentialStore = parsed.type;
+      }
+    } catch {
+      // File not found, invalid JSON, or invalid type — silently skip migration.
+      // The credential store will probe and discover the type on first use.
+    }
+  }
+
   private async resolveProfile(storedProfile: StoredHaloProfile): Promise<HaloProfile> {
     const credentials = await this.credentialStore.getProfileCredentials(storedProfile.name);
 
     if (!credentials || credentials.type !== storedProfile.auth.type) {
       throw new CliError(
-        `Credentials for profile "${storedProfile.name}" are missing from the system keyring. Run \`halo auth login --profile ${storedProfile.name}\` again to restore them.`,
+        `Credentials for profile "${storedProfile.name}" are missing from the credential store. Run \`halo auth login --profile ${storedProfile.name}\` again to restore them.`,
       );
     }
 

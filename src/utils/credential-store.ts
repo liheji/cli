@@ -1,11 +1,11 @@
-import { Entry } from "@napi-rs/keyring";
+import { Entry, findCredentials, type Credential } from "@napi-rs/keyring";
 
 import type { HaloCredentials } from "../shared/profile.js";
 import { CliError } from "./errors.js";
 
 const HALO_CLI_KEYRING_SERVICE = "@halo-dev/cli";
 
-function formatProfileLabel(profileName: string): string {
+export function formatProfileLabel(profileName: string): string {
   return `"${profileName}"`;
 }
 
@@ -15,11 +15,32 @@ export interface CredentialStore {
   deleteProfileCredentials(profileName: string): Promise<void>;
 }
 
+export function probeKeyringCredentialStore(): void {
+  findCredentials(HALO_CLI_KEYRING_SERVICE);
+}
+
 function getProfileKeyringEntry(profileName: string): Entry {
   return new Entry(HALO_CLI_KEYRING_SERVICE, `profile:${profileName}`);
 }
 
-function isHaloCredentials(value: unknown): value is HaloCredentials {
+function findProfileKeyringCredentials(
+  profileName: string,
+  operation: "read" | "delete",
+): Credential[] {
+  try {
+    const account = `profile:${profileName}`;
+    return findCredentials(HALO_CLI_KEYRING_SERVICE).filter(
+      (credential) => credential.account === account,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown keyring error.";
+    throw new CliError(
+      `Failed to ${operation} credentials for profile ${formatProfileLabel(profileName)}: ${message}`,
+    );
+  }
+}
+
+export function isHaloCredentials(value: unknown): value is HaloCredentials {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -49,18 +70,8 @@ export class KeyringCredentialStore implements CredentialStore {
   }
 
   async getProfileCredentials(profileName: string): Promise<HaloCredentials | undefined> {
-    let raw: string | null;
-
-    try {
-      raw = getProfileKeyringEntry(profileName).getPassword();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown keyring error.";
-      throw new CliError(
-        `Failed to read credentials for profile ${formatProfileLabel(profileName)}: ${message}`,
-      );
-    }
-
-    if (!raw) {
+    const raw = this.getListedPassword(profileName);
+    if (raw === undefined) {
       return undefined;
     }
 
@@ -83,13 +94,45 @@ export class KeyringCredentialStore implements CredentialStore {
   }
 
   async deleteProfileCredentials(profileName: string): Promise<void> {
+    const matches = findProfileKeyringCredentials(profileName, "delete");
+    if (matches.length === 0) {
+      return;
+    }
+    if (matches.length > 1) {
+      throw new CliError(
+        `Stored credentials for profile ${formatProfileLabel(profileName)} are ambiguous.`,
+      );
+    }
+
+    let deleted: boolean;
     try {
-      getProfileKeyringEntry(profileName).deletePassword();
+      deleted = getProfileKeyringEntry(profileName).deletePassword();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown keyring error.";
       throw new CliError(
         `Failed to delete credentials for profile ${formatProfileLabel(profileName)}: ${message}`,
       );
     }
+
+    if (deleted || findProfileKeyringCredentials(profileName, "delete").length === 0) {
+      return;
+    }
+
+    throw new CliError(
+      `Credentials for profile ${formatProfileLabel(profileName)} remain in the system keyring after deletion.`,
+    );
+  }
+
+  private getListedPassword(profileName: string): string | undefined {
+    const matches = findProfileKeyringCredentials(profileName, "read");
+    if (matches.length === 0) {
+      return undefined;
+    }
+    if (matches.length > 1) {
+      throw new CliError(
+        `Stored credentials for profile ${formatProfileLabel(profileName)} are ambiguous.`,
+      );
+    }
+    return matches[0].password;
   }
 }

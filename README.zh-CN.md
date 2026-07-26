@@ -5,9 +5,9 @@
 一个用于管理 [Halo](https://www.halo.run) 实例的命令行工具。
 
 <p>
-<a href="https://www.npmjs.com/package/@halo-dev/cli"><img alt="NPM Downloads" src="https://img.shields.io/npm/dm/%40halo-dev%2Fcli"></a>
-<a href="https://www.npmjs.com/package/@halo-dev/cli"><img alt="NPM Version" src="https://img.shields.io/npm/v/%40halo-dev%2Fcli"></a>
-<a href="https://www.npmjs.com/package/@halo-dev/cli"><img alt="NPM Last Update" src="https://img.shields.io/npm/last-update/%40halo-dev%2Fcli"></a>
+<a href="https://www.npmjs.com/package/@yilee01/halo-cli"><img alt="NPM Downloads" src="https://img.shields.io/npm/dm/%40halo-dev%2Fcli"></a>
+<a href="https://www.npmjs.com/package/@yilee01/halo-cli"><img alt="NPM Version" src="https://img.shields.io/npm/v/%40halo-dev%2Fcli"></a>
+<a href="https://www.npmjs.com/package/@yilee01/halo-cli"><img alt="NPM Last Update" src="https://img.shields.io/npm/last-update/%40halo-dev%2Fcli"></a>
 </p>
 
 [![asciicast](https://asciinema.org/a/LiTFpF00sFMKnNGX.svg)](https://asciinema.org/a/LiTFpF00sFMKnNGX)
@@ -15,7 +15,7 @@
 ## 安装
 
 ```sh
-npm install -g @halo-dev/cli
+npm install -g @yilee01/halo-cli
 ```
 
 安装后可执行命令为：
@@ -194,7 +194,7 @@ halo comment reply <TAB>
 可以通过下面的方式添加 skills：
 
 ```sh
-npx skills add halo-dev/cli
+npx skills add yilee01/halo-cli
 ```
 
 安装后，推荐先从这里开始：
@@ -211,7 +211,10 @@ profile 元数据存储在：
 - 否则为 `$XDG_CONFIG_HOME/halo/config.json`
 - 再否则为 `~/.config/halo/config.json`
 
-凭据会存储在系统 keyring 中。
+CLI 首次使用凭据时会选择存储后端，并将结果记录到同一配置目录下的
+`credential-store/selection.json`。默认优先使用系统 keyring；如果首次探测失败，则降级为
+`credentials/` 下按 profile 隔离的文件。CLI 会请求目录权限为 `0700`、文件权限为 `0600`；
+文件系统无法应用 POSIX 权限时，继续使用系统默认权限。
 
 ## 开发
 

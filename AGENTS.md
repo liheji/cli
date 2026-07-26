@@ -6,7 +6,7 @@ in the existing style, and run the right checks before handing work back.
 
 ## Project Overview
 
-`@halo-dev/cli` is a TypeScript, ESM-based CLI for managing Halo instances.
+`@yilee01/halo-cli` is a TypeScript, ESM-based CLI for managing Halo instances.
 
 - Runtime: Node.js >= 22
 - Published binary: `halo`

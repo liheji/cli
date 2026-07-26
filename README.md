@@ -5,9 +5,9 @@
 A command-line tool for managing [Halo](https://www.halo.run) instances.
 
 <p>
-<a href="https://www.npmjs.com/package/@halo-dev/cli"><img alt="NPM Downloads" src="https://img.shields.io/npm/dm/%40halo-dev%2Fcli"></a>
-<a href="https://www.npmjs.com/package/@halo-dev/cli"><img alt="NPM Version" src="https://img.shields.io/npm/v/%40halo-dev%2Fcli"></a>
-<a href="https://www.npmjs.com/package/@halo-dev/cli"><img alt="NPM Last Update" src="https://img.shields.io/npm/last-update/%40halo-dev%2Fcli"></a>
+<a href="https://www.npmjs.com/package/@yilee01/halo-cli"><img alt="NPM Downloads" src="https://img.shields.io/npm/dm/%40halo-dev%2Fcli"></a>
+<a href="https://www.npmjs.com/package/@yilee01/halo-cli"><img alt="NPM Version" src="https://img.shields.io/npm/v/%40halo-dev%2Fcli"></a>
+<a href="https://www.npmjs.com/package/@yilee01/halo-cli"><img alt="NPM Last Update" src="https://img.shields.io/npm/last-update/%40halo-dev%2Fcli"></a>
 </p>
 
 [![asciicast](https://asciinema.org/a/LiTFpF00sFMKnNGX.svg)](https://asciinema.org/a/LiTFpF00sFMKnNGX)
@@ -15,7 +15,7 @@ A command-line tool for managing [Halo](https://www.halo.run) instances.
 ## Install
 
 ```sh
-npm install -g @halo-dev/cli
+npm install -g @yilee01/halo-cli
 ```
 
 The installed binary is:
@@ -194,7 +194,7 @@ Included skills:
 Add the skills with:
 
 ```sh
-npx skills add halo-dev/cli
+npx skills add yilee01/halo-cli
 ```
 
 Recommended starting point after installation:
@@ -211,7 +211,11 @@ Profile metadata is stored in:
 - otherwise `$XDG_CONFIG_HOME/halo/config.json`
 - otherwise `~/.config/halo/config.json`
 
-Credentials are stored in the system keyring.
+The CLI selects a credential backend on first use and records it under
+`credential-store/selection.json` in the same configuration directory. It prefers the system
+keyring. If the initial keyring probe fails, credentials fall back to per-profile files under
+`credentials/`. The CLI requests `0700` directory and `0600` file permissions; filesystems that
+cannot apply POSIX permissions use their default permissions instead.
 
 ## Development
 

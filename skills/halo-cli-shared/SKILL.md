@@ -19,7 +19,7 @@ Start here when the task says "use Halo CLI" but does not yet say whether it is 
 Install globally:
 
 ```bash
-npm install -g @halo-dev/cli
+npm install -g @yilee01/halo-cli
 ```
 
 Binary name:

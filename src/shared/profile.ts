@@ -1,5 +1,11 @@
 export type AuthType = "basic" | "bearer";
 
+export type CredentialStoreType = "keyring" | "file";
+
+export function isCredentialStoreType(value: unknown): value is CredentialStoreType {
+  return value === "keyring" || value === "file";
+}
+
 export interface BasicCredentials {
   type: "basic";
   username: string;
@@ -32,6 +38,7 @@ export interface HaloProfile extends Omit<StoredHaloProfile, "auth"> {
 export interface HaloConfig {
   activeProfile?: string;
   profiles: Record<string, StoredHaloProfile>;
+  credentialStore?: CredentialStoreType;
 }
 
 export function toStoredHaloProfile(profile: HaloProfile): StoredHaloProfile {
